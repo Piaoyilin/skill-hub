@@ -11,9 +11,9 @@ import type {
   SkillVersionView,
 } from "./types";
 
-const publicSkillWhere = { status: "PUBLISHED" as SkillStatus };
+export const publicSkillWhere = { status: "PUBLISHED" as SkillStatus };
 
-const publicVersionInclude = {
+export const publicVersionInclude = {
   where: { publishedAt: { not: null } },
   orderBy: [{ publishedAt: "desc" as const }, { createdAt: "desc" as const }],
   take: 1,
@@ -49,7 +49,7 @@ function readmeFromSkillMd(skillMd: string, fallback: string) {
   }
 }
 
-function toSkillView(
+export function toSkillView(
   skill: DatabaseSkill,
   options: { includeSkillMd?: boolean; viewerId?: string } = {},
 ): SkillView {
@@ -121,7 +121,7 @@ function isChangelogItem(
   );
 }
 
-type DatabaseSkill = Awaited<ReturnType<typeof findPublishedSkills>>[number];
+export type DatabaseSkill = Awaited<ReturnType<typeof findPublishedSkills>>[number];
 
 async function findPublishedSkills(options: ListSkillsOptions = {}) {
   const prisma = getConfiguredPrisma();

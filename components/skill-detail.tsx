@@ -26,9 +26,103 @@ function getSkillMarkdown(skill: Skill) {
   return skill.skillMd ?? buildSkillMarkdown(skill);
 }
 
-export function SkillDetail({ skill }: { skill: Skill }) {
+type FavoriteResponse = {
+  success?: boolean;
+  favorited?: boolean;
+  error?: { code?: string; message?: string };
+};
+
+export function FavoriteButton({
+  slug,
+  initialFavorited = false,
+}: {
+  slug: string;
+  initialFavorited?: boolean;
+}) {
+  const [favorite, setFavorite] = useState(initialFavorited);
+  const [pending, setPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function toggleFavorite() {
+    if (pending) return;
+
+    setPending(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/skills/${encodeURIComponent(slug)}/favorite`,
+        { method: favorite ? "DELETE" : "POST" },
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | FavoriteResponse
+        | null;
+
+      if (
+        response.status === 401 ||
+        payload?.error?.code === "AUTH_REQUIRED"
+      ) {
+        window.location.assign(
+          `/login?next=${encodeURIComponent(`/skills/${slug}`)}`,
+        );
+        return;
+      }
+
+      if (
+        !response.ok ||
+        payload?.success !== true ||
+        typeof payload.favorited !== "boolean"
+      ) {
+        throw new Error(payload?.error?.message || "收藏操作失败，请稍后重试。");
+      }
+
+      setFavorite(payload.favorited);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "收藏操作失败，请稍后重试。",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-2">
+      <button
+        type="button"
+        onClick={() => void toggleFavorite()}
+        disabled={pending}
+        aria-pressed={favorite}
+        className={cn(
+          "inline-flex h-10 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60",
+          favorite && "border-primary bg-accent text-accent-foreground",
+        )}
+      >
+        {pending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Heart className={cn("h-4 w-4", favorite && "fill-current")} />
+        )}
+        {pending ? "处理中" : favorite ? "已收藏" : "收藏"}
+      </button>
+      {errorMessage ? (
+        <p className="flex max-w-56 items-start gap-1.5 text-right text-xs text-red-600 dark:text-red-400">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {errorMessage}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function SkillDetail({
+  skill,
+  initialFavorited = false,
+}: {
+  skill: Skill;
+  initialFavorited?: boolean;
+}) {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
-  const [favorite, setFavorite] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
@@ -120,9 +214,10 @@ export function SkillDetail({ skill }: { skill: Skill }) {
                   </Link>
                 </>
               ) : null}
-              <button type="button" onClick={() => setFavorite((current) => !current)} className={cn("inline-flex h-10 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-muted", favorite && "border-primary bg-accent text-accent-foreground")}>
-                <Heart className={cn("h-4 w-4", favorite && "fill-current")} />{favorite ? "已收藏" : "收藏"}
-              </button>
+              <FavoriteButton
+                slug={skill.slug}
+                initialFavorited={initialFavorited}
+              />
               <button type="button" onClick={downloadSkill} disabled={!skill.packageAvailable || downloading} className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">
                 {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 {!skill.packageAvailable

@@ -2,19 +2,27 @@ import { notFound } from "next/navigation";
 import { SkillDetail } from "@/components/skill-detail";
 import { getRegistrySkillBySlug } from "@/lib/registry";
 import { getCurrentUser } from "@/lib/auth/server";
+import { getFavoriteStatusForSlug } from "@/lib/registry/favorites";
 
 export const dynamic = "force-dynamic";
 
 export default async function SkillPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  let viewerId: string | undefined;
+  let currentUser;
   try {
-    viewerId = (await getCurrentUser())?.profile.id;
+    currentUser = await getCurrentUser();
   } catch {
-    viewerId = undefined;
+    currentUser = null;
   }
 
-  const skill = await getRegistrySkillBySlug(slug, { viewerId });
+  const skill = await getRegistrySkillBySlug(slug, {
+    viewerId: currentUser?.profile.id,
+  });
   if (!skill) notFound();
-  return <SkillDetail skill={skill} />;
+
+  const initialFavorited = currentUser
+    ? await getFavoriteStatusForSlug(currentUser.profile.id, slug)
+    : false;
+
+  return <SkillDetail skill={skill} initialFavorited={initialFavorited} />;
 }

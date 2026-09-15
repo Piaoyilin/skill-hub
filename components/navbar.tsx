@@ -71,19 +71,13 @@ export function Navbar() {
     }
   }
 
-  const profileName =
-    authUser?.user_metadata?.display_name ||
-    authUser?.user_metadata?.full_name ||
-    authUser?.email?.split("@")[0] ||
-    "我的账户";
-
   const mobileItems = [
     ["/explore", "发现技能"],
     ["/#categories", "分类"],
     ["/#latest", "最新发布"],
     ["/create", "创建 Skill"],
     ...(authUser
-      ? [["/dashboard", "我的技能"]]
+      ? [["/dashboard", "个人中心"]]
       : [
           ["/login", "登录"],
           ["/register", "注册"],
@@ -125,7 +119,7 @@ export function Navbar() {
                 className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <UserRound className="h-4 w-4" />
-                {profileName}
+                个人中心
               </Link>
               <button
                 type="button"

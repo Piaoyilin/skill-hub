@@ -33,6 +33,16 @@ function databaseError(error: unknown) {
 export { getConfiguredDataSource as getSkillDataSource };
 export type * from "./types";
 export {
+  FavoriteError,
+  favoriteSkill,
+  getFavoriteSkillsForUser,
+  getFavoriteStatus,
+  getFavoriteStatusForSlug,
+  unfavoriteSkill,
+  type FavoriteDbClient,
+  type FavoriteErrorCode,
+} from "./favorites";
+export {
   normalizeTags,
   publishSkillPackage,
   type PublishErrorCode,

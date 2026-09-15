@@ -29,6 +29,7 @@ model Skill {
   owner             User?          @relation("SkillOwner", fields: [ownerId], references: [id])
   skillTags         SkillTag[]
   versions          SkillVersion[]
+  favorites         SkillFavorite[]
 
   @@index([status, featured])
   @@index([status, updatedAt])
@@ -45,8 +46,22 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   skills      Skill[]  @relation("SkillOwner")
+  favorites   SkillFavorite[]
 
   @@index([displayName])
+}
+
+model SkillFavorite {
+  userId    String
+  skillId   String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([userId, skillId])
+  @@index([userId, createdAt])
+  @@index([skillId])
 }
 
 model SkillVersion {
