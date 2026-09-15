@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 210 20% 98%;
+  --foreground: 222 30% 13%;
+  --muted: 210 18% 95%;
+  --muted-foreground: 215 14% 45%;
+  --border: 214 20% 88%;
+  --input: 214 20% 88%;
+  --ring: 239 84% 67%;
+  --primary: 239 68% 52%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 18% 95%;
+  --secondary-foreground: 222 30% 18%;
+  --accent: 240 75% 96%;
+  --accent-foreground: 239 68% 46%;
+}
+
+.dark {
+  --background: 222 30% 8%;
+  --foreground: 210 25% 95%;
+  --muted: 222 22% 13%;
+  --muted-foreground: 215 15% 65%;
+  --border: 217 18% 23%;
+  --input: 217 18% 23%;
+  --ring: 239 84% 72%;
+  --primary: 239 84% 72%;
+  --primary-foreground: 231 32% 12%;
+  --secondary: 222 22% 15%;
+  --secondary-foreground: 210 25% 95%;
+  --accent: 239 30% 19%;
+  --accent-foreground: 239 84% 80%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Arial, Helvetica, sans-serif;
+  font-feature-settings: "ss01" 1, "cv11" 1;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.18);
+}
+
+.grid-paper {
+  background-image:
+    linear-gradient(hsl(var(--border) / 0.42) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.42) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.dark .grid-paper {
+  background-image:
+    linear-gradient(hsl(var(--border) / 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.22) 1px, transparent 1px);
+}
+
+.code-scroll::-webkit-scrollbar {
+  height: 7px;
+  width: 7px;
+}
+
+.code-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 999px;
+}

@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Skill {
+  id                String         @id @default(cuid())
+  slug              String         @unique
+  displayName       String
+  description       String
+  categoryId        String
+  status            SkillStatus    @default(DRAFT)
+  authorDisplayName String
+  authorHandle      String?
+  icon              String         @default("S")
+  accent            String         @default("indigo")
+  verified          Boolean        @default(false)
+  featured          Boolean        @default(false)
+  downloads         Int            @default(0)
+  stars             Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  ownerId           String?
+  category          Category       @relation(fields: [categoryId], references: [id])
+  owner             User?          @relation("SkillOwner", fields: [ownerId], references: [id])
+  skillTags         SkillTag[]
+  versions          SkillVersion[]
+
+  @@index([status, featured])
+  @@index([status, updatedAt])
+  @@index([categoryId, status])
+  @@index([ownerId, updatedAt])
+}
+
+model User {
+  id          String   @id @default(cuid())
+  authUserId  String   @unique
+  username    String   @unique
+  displayName String
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  skills      Skill[]  @relation("SkillOwner")
+
+  @@index([displayName])
+}
+
+model SkillVersion {
+  id          String      @id @default(cuid())
+  skillId     String
+  version     String
+  skillMd     String
+  manifest    Json
+  changelog   Json?
+  createdAt   DateTime    @default(now())
+  publishedAt DateTime?
+  packageHash String?
+  packageSize Int?
+  storagePath String?
+  files       SkillFile[]
+  skill       Skill       @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([skillId, version])
+  @@index([skillId, publishedAt])
+}
+
+model SkillFile {
+  id         String        @id @default(cuid())
+  versionId  String
+  path       String
+  type       SkillFileType
+  sizeBytes  Int           @default(0)
+  mimeType   String?
+  storageKey String?
+  version    SkillVersion  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, path])
+  @@index([versionId])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String   @unique
+  createdAt DateTime @default(now())
+  skills    Skill[]
+}
+
+model Tag {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  name      String     @unique
+  createdAt DateTime   @default(now())
+  skillTags SkillTag[]
+}
+
+model SkillTag {
+  skillId String
+  tagId   String
+  skill   Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  tag     Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([skillId, tagId])
+  @@index([tagId])
+}
+
+enum SkillStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SkillFileType {
+  FILE
+  DIRECTORY
+}
