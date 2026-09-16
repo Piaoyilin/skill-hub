@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   favoriteSkill,
   getFavoriteSkillsForUser,
   getFavoriteStatus,
+  getFavoriteStatusForSlug,
   unfavoriteSkill,
 } from "../lib/registry/favorites";
 import {
@@ -205,6 +206,46 @@ describe("Skill favorites service", () => {
     }
 
     expect(fixture.favorites.size).toBe(0);
+  });
+
+  it("keeps slug-based favorite status limited to published Skills", async () => {
+    const fixture = createFavoritesFixture();
+    fixture.favorites.set("profile-user-a:skill-archived", {
+      userId: "profile-user-a",
+      skillId: "skill-archived",
+      createdAt: new Date(),
+    });
+
+    await expect(
+      getFavoriteStatusForSlug("profile-user-a", "archived-one", {
+        db: fixture.db,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("checks detail favorite status by known skill id without a duplicate slug lookup", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ userId: "profile-user-a" });
+    const findFirst = vi.fn();
+
+    await expect(
+      getFavoriteStatus("profile-user-a", "skill-public-1", {
+        db: {
+          skill: { findFirst },
+          skillFavorite: { findUnique },
+        } as never,
+      }),
+    ).resolves.toBe(true);
+
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(findUnique).toHaveBeenCalledWith({
+      where: {
+        userId_skillId: {
+          userId: "profile-user-a",
+          skillId: "skill-public-1",
+        },
+      },
+      select: { userId: true },
+    });
   });
 
   it("isolates users and sorts each user's favorites by newest favorite time", async () => {

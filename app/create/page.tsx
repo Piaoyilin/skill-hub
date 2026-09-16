@@ -2,13 +2,79 @@ import Link from "next/link";
 import { ArrowLeft, FilePlus2, Github, Upload, WandSparkles } from "lucide-react";
 import { Container } from "@/components/container";
 import { PageHeader } from "@/components/page-header";
-import { CreateOptions } from "@/components/create-options";
-import { listRegistryCategories } from "@/lib/registry";
+import { CreateOptions, type PublishTarget } from "@/components/create-options";
+import {
+  getRegistryOwnedSkillBySlug,
+  listRegistryCategories,
+} from "@/lib/registry";
+import { getCurrentUser } from "@/lib/auth/server";
+import { logTiming, measureAsync } from "@/lib/diagnostics/timing";
 
 export const dynamic = "force-dynamic";
 
-export default async function CreatePage() {
-  const categories = await listRegistryCategories();
+export default async function CreatePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ skill?: string }>;
+}) {
+  const startedAt = performance.now();
+  const params = await searchParams;
+  const requestedSlug = params.skill?.trim();
+  let publishTarget: PublishTarget | null = null;
+  const categoriesPromise = measureAsync(
+    "CREATE query",
+    "categories",
+    () => listRegistryCategories(),
+    { route: "/create" },
+  );
+
+  if (requestedSlug) {
+    let currentUser;
+    try {
+      currentUser = await getCurrentUser({ route: "/create" });
+    } catch {
+      currentUser = null;
+    }
+
+    if (currentUser) {
+      const ownedSkill = await measureAsync(
+        "CREATE query",
+        "owned skill target",
+        () =>
+          getRegistryOwnedSkillBySlug(
+            currentUser.profile.id,
+            requestedSlug,
+          ),
+        { route: "/create" },
+      );
+      publishTarget = ownedSkill
+        ? {
+            slug: ownedSkill.slug,
+            name: ownedSkill.name,
+            authorized: true,
+          }
+        : {
+            slug: requestedSlug,
+            name: "这个 Skill",
+            authorized: false,
+            authenticated: true,
+          };
+    } else {
+      publishTarget = {
+        slug: requestedSlug,
+        name: "这个 Skill",
+        authorized: false,
+        authenticated: false,
+      };
+    }
+  }
+
+  const categories = await categoriesPromise;
+  logTiming("TOTAL render/data", performance.now() - startedAt, {
+    route: "/create",
+    operation: "create page data",
+    status: "ok",
+  });
 
   return (
     <Container className="py-12 sm:py-16">
@@ -31,13 +97,21 @@ export default async function CreatePage() {
           <Github className="h-5 w-5 text-primary" />
           <h2 className="mt-5 font-semibold">从 GitHub 导入</h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">从公开仓库导入已有的 SKILL.md，并补充必要的元数据。</p>
-          <CreateOptions mode="github" />
+          <CreateOptions
+            mode="github"
+            categories={categories.slice(1)}
+            publishTarget={publishTarget}
+          />
         </div>
         <div className="rounded-md border bg-background p-6 transition hover:border-foreground/30">
           <Upload className="h-5 w-5 text-primary" />
           <h2 className="mt-5 font-semibold">上传技能包</h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">上传包含 SKILL.md 的 ZIP 文件，快速导入已有技能。</p>
-          <CreateOptions mode="upload" categories={categories.slice(1)} />
+          <CreateOptions
+            mode="upload"
+            categories={categories.slice(1)}
+            publishTarget={publishTarget}
+          />
         </div>
       </div>
       <div className="mt-10 rounded-md border border-dashed bg-muted/35 p-6">

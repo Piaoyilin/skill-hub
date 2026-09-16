@@ -3,6 +3,13 @@ import { Buffer } from "node:buffer";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { getConfiguredPrisma } from "../db/client";
 import { DEFAULT_SKILL_LIMITS } from "../skills/constants";
+import {
+  MAX_NAME_LENGTH,
+  isValidSkillName,
+  isValidSkillSlug,
+  resolveSkillSlug,
+  toSkillSlug,
+} from "../skills/identity";
 import { loadSkillPackageFromZip } from "../skills/zip";
 import {
   buildSkillPackageStoragePath,
@@ -18,16 +25,17 @@ import type {
   ValidationResult,
 } from "../skills/types";
 
-const MAX_SLUG_LENGTH = 80;
-const MAX_NAME_LENGTH = 200;
 const SEMVER_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export type PublishSkillFields = {
   category?: string;
   tags?: string[];
   version?: string;
+  displayName?: string;
+  description?: string;
+  slug?: string;
+  targetSlug?: string;
 };
 
 export type PublishOwner = {
@@ -77,6 +85,7 @@ export type PublishErrorCode =
   | "VERSION_REQUIRED"
   | "VERSION_INVALID"
   | "NAME_INVALID"
+  | "DISPLAY_NAME_INVALID"
   | "SLUG_INVALID"
   | "SKILL_PERMISSION_DENIED"
   | "SKILL_VERSION_EXISTS"
@@ -101,6 +110,7 @@ export type PublishPreflightInput = {
   slug: string;
   version: string;
   category: string;
+  targetSlug?: string;
   owner?: PublishOwner;
 };
 
@@ -117,6 +127,7 @@ type PreparedPublication = {
   displayName: string;
   skillMd: string;
   slug: string;
+  targetSlug?: string;
   version: string;
   category: string;
   tags: string[];
@@ -148,41 +159,8 @@ function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function slugHash(value: string) {
-  return createHash("sha1").update(value, "utf8").digest("hex").slice(0, 12);
-}
-
 function sha256(value: Uint8Array) {
   return createHash("sha256").update(Buffer.from(value)).digest("hex");
-}
-
-function toSlug(value: string, prefix: string) {
-  const ascii = value
-    .trim()
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, MAX_SLUG_LENGTH)
-    .replace(/-+$/g, "");
-
-  return ascii || `${prefix}-${slugHash(value)}`;
-}
-
-function isValidSlug(value: string) {
-  return (
-    value.length > 0 &&
-    value.length <= MAX_SLUG_LENGTH &&
-    SLUG_PATTERN.test(value)
-  );
-}
-
-function isValidName(value: string) {
-  return (
-    value.length > 0 &&
-    value.length <= MAX_NAME_LENGTH &&
-    !/[\r\n]/.test(value)
-  );
 }
 
 function isValidVersion(value: string) {
@@ -244,17 +222,35 @@ function resolveDisplayName(parsedSkill: ParsedSkill, fallback: string) {
   return fallback;
 }
 
-function prepareSlug(parsedSkill: ParsedSkill, issues: ValidationIssue[]) {
+function prepareSlug(
+  parsedSkill: ParsedSkill,
+  issues: ValidationIssue[],
+  explicitSlug?: string,
+) {
   const rawSlug = parsedSkill.rawFrontmatter.slug;
+  if (explicitSlug?.trim()) {
+    const slug = resolveSkillSlug(explicitSlug, parsedSkill.manifest.name ?? "");
+    if (!isValidSkillSlug(slug)) {
+      issues.push(
+        issue(
+          "error",
+          "SLUG_INVALID",
+          "Skill slug 必须是小写 kebab-case，且不能包含路径字符。",
+        ),
+      );
+    }
+    return slug;
+  }
+
   if (rawSlug !== undefined && typeof rawSlug !== "string") {
     issues.push(issue("error", "SLUG_TYPE_INVALID", "slug 必须是字符串。"));
     return "";
   }
 
   const source = typeof rawSlug === "string" ? rawSlug.trim() : "";
-  const slug = source ? source.toLowerCase() : toSlug(parsedSkill.manifest.name ?? "", "skill");
+  const slug = resolveSkillSlug(source, parsedSkill.manifest.name ?? "");
 
-  if (!isValidSlug(slug)) {
+  if (!isValidSkillSlug(slug)) {
     issues.push(
       issue(
         "error",
@@ -273,7 +269,7 @@ function prepareVersion(
   issues: ValidationIssue[],
 ) {
   const version =
-    parsedSkill.manifest.version?.trim() || fields.version?.trim() || "";
+    fields.version?.trim() || parsedSkill.manifest.version?.trim() || "";
 
   if (!version) {
     issues.push(
@@ -300,13 +296,25 @@ function appendPublicationIssues(
   const issues = [...validation.issues];
   const name = parsedSkill.manifest.name?.trim() ?? "";
 
-  if (name && !isValidName(name)) {
+  if (name && !isValidSkillName(name)) {
     issues.push(
       issue("error", "NAME_INVALID", `Skill name 不能为空且不能超过 ${MAX_NAME_LENGTH} 个字符。`),
     );
   }
 
-  prepareSlug(parsedSkill, issues);
+  const displayName =
+    fields.displayName?.trim() || resolveDisplayName(parsedSkill, name);
+  if (displayName && !isValidSkillName(displayName)) {
+    issues.push(
+      issue(
+        "error",
+        "DISPLAY_NAME_INVALID",
+        "Skill 展示名称不能为空、不能包含换行且不能超过 200 个字符。",
+      ),
+    );
+  }
+
+  prepareSlug(parsedSkill, issues, fields.slug);
   prepareVersion(fields, parsedSkill, issues);
 
   return {
@@ -344,7 +352,7 @@ function fileType(file: SkillFile) {
 }
 
 function tagSlug(name: string) {
-  return toSlug(name, "tag");
+  return toSkillSlug(name, "tag");
 }
 
 function databaseError(error: unknown): PublishSkillFailure {
@@ -455,7 +463,32 @@ async function checkPublishPreflight(
     select: { id: true, ownerId: true },
   });
 
-  if (!existing) return;
+  if (input.targetSlug && input.slug !== input.targetSlug) {
+    throw new PublishDomainError(
+      "SKILL_PERMISSION_DENIED",
+      "目标 Skill 不存在或你没有权限发布新版本。",
+    );
+  }
+
+  if (!existing) {
+    if (input.targetSlug) {
+      throw new PublishDomainError(
+        "SKILL_PERMISSION_DENIED",
+        "目标 Skill 不存在或你没有权限发布新版本。",
+      );
+    }
+    return;
+  }
+
+  if (
+    input.targetSlug &&
+    (!input.owner || existing.ownerId !== input.owner.id)
+  ) {
+    throw new PublishDomainError(
+      "SKILL_PERMISSION_DENIED",
+      "目标 Skill 不存在或你没有权限发布新版本。",
+    );
+  }
 
   if (input.owner && existing.ownerId !== input.owner.id) {
     throw new PublishDomainError(
@@ -506,8 +539,25 @@ async function persistPublication(
     select: { id: true, ownerId: true },
   });
 
+  if (prepared.targetSlug && prepared.slug !== prepared.targetSlug) {
+    throw new PublishDomainError(
+      "SKILL_PERMISSION_DENIED",
+      "目标 Skill 不存在或你没有权限发布新版本。",
+    );
+  }
+
   let skillId: string;
   if (existing) {
+    if (
+      prepared.targetSlug &&
+      (!owner || existing.ownerId !== owner.id)
+    ) {
+      throw new PublishDomainError(
+        "SKILL_PERMISSION_DENIED",
+        "目标 Skill 不存在或你没有权限发布新版本。",
+      );
+    }
+
     if (owner && existing.ownerId !== owner.id) {
       throw new PublishDomainError(
         "SKILL_PERMISSION_DENIED",
@@ -546,6 +596,13 @@ async function persistPublication(
     });
     skillId = updated.id;
   } else {
+    if (prepared.targetSlug) {
+      throw new PublishDomainError(
+        "SKILL_PERMISSION_DENIED",
+        "目标 Skill 不存在或你没有权限发布新版本。",
+      );
+    }
+
     const created = await tx.skill.create({
       data: {
         slug: prepared.slug,
@@ -691,7 +748,7 @@ async function preparePublication(
     };
   }
 
-  const slug = prepareSlug(loaded.parsedSkill, []);
+  const slug = prepareSlug(loaded.parsedSkill, [], fields.slug);
   const version = prepareVersion(fields, loaded.parsedSkill, []);
   const storagePath = buildSkillPackageStoragePath(slug, version);
 
@@ -702,10 +759,13 @@ async function preparePublication(
       parsedSkill: loaded.parsedSkill,
       validation,
       name,
-      description,
-      displayName: resolveDisplayName(loaded.parsedSkill, name),
+      description: fields.description?.trim() || description,
+      displayName:
+        fields.displayName?.trim() ||
+        resolveDisplayName(loaded.parsedSkill, name),
       skillMd,
       slug,
+      targetSlug: fields.targetSlug?.trim().toLowerCase() || undefined,
       version,
       category,
       tags: normalizeTags(fields.tags),
@@ -763,6 +823,7 @@ export async function publishSkillPackage(
       slug: prepared.prepared.slug,
       version: prepared.prepared.version,
       category: prepared.prepared.category,
+      targetSlug: prepared.prepared.targetSlug,
       owner: dependencies.owner,
     });
   } catch (error) {

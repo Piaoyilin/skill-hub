@@ -7,6 +7,7 @@ import {
   getRegistryOwnedSkillBySlug,
   listRegistryCategories,
 } from "@/lib/registry";
+import { measureAsync } from "@/lib/diagnostics/timing";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export default async function SkillManagementPage({
   let currentUser;
 
   try {
-    currentUser = await getCurrentUser();
+    currentUser = await getCurrentUser({ route: "/dashboard/skills/[slug]" });
   } catch {
     currentUser = null;
   }
@@ -28,10 +29,16 @@ export default async function SkillManagementPage({
     redirect(`/login?next=/dashboard/skills/${encodeURIComponent(slug)}`);
   }
 
-  const [skill, categories] = await Promise.all([
-    getRegistryOwnedSkillBySlug(currentUser.profile.id, slug),
-    listRegistryCategories(),
-  ]);
+  const [skill, categories] = await measureAsync(
+    "TOTAL render/data",
+    "dashboard skill management",
+    () =>
+      Promise.all([
+        getRegistryOwnedSkillBySlug(currentUser.profile.id, slug),
+        listRegistryCategories(),
+      ]),
+    { route: "/dashboard/skills/[slug]" },
+  );
 
   if (!skill) notFound();
 

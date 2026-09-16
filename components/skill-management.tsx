@@ -165,7 +165,7 @@ export function SkillManagement({
             </Button>
           )}
           <Button asChild>
-            <Link href={`/create?slug=${encodeURIComponent(skill.slug)}`}>
+            <Link href={`/create?skill=${encodeURIComponent(skill.slug)}`}>
               <GitBranch className="h-4 w-4" />
               发布新版本
             </Link>

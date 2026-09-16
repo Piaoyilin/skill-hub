@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
+import { NavigationTiming } from "@/components/navigation-timing";
 
 export const metadata: Metadata = {
   title: "Skill Hub | AI Agent Skills 市场",
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <body>
         <Navbar />
+        <NavigationTiming />
         <main>{children}</main>
       </body>
     </html>

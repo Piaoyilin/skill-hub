@@ -115,7 +115,7 @@ function limits(overrides: Partial<SkillLimits>): SkillLimits {
 }
 
 describe("analyzeSkillUpload", () => {
-  it("returns a metadata-only preview for a valid root package", async () => {
+  it("returns a bounded preview for a valid root package", async () => {
     const archive = await createZip([
       { path: "SKILL.md", content: validSkillMd },
       { path: "references/", directory: true },
@@ -141,10 +141,11 @@ describe("analyzeSkillUpload", () => {
       "references/guide.md",
     ]);
     expect(result.preview.validation.valid).toBe(true);
+    expect(result.preview.packageSizeBytes).toBe(archive.byteLength);
+    expect(result.preview.skillMdPreview).toContain("# 使用说明");
     expect(result.preview.files).not.toContainEqual(
       expect.objectContaining({ content: expect.anything() }),
     );
-    expect(result.preview).not.toHaveProperty("rawSkillMd");
   });
 
   it("supports a single top-level directory", async () => {

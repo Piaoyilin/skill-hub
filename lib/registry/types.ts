@@ -49,6 +49,13 @@ export type SkillView = {
   skillMd?: string;
 };
 
+export type SkillDetailView = SkillView & {
+  /** Server-only database id used to avoid duplicate lookups on detail pages. */
+  databaseId?: string;
+  /** Server-only owner profile id used for display-only canManage calculation. */
+  ownerProfileId?: string | null;
+};
+
 export type CategoryView = {
   name: string;
   count: number;

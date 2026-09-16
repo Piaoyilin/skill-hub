@@ -1,5 +1,6 @@
 import { parseSkillMd } from "../skills/parser";
 import { getConfiguredPrisma } from "../db/client";
+import { measureAsync } from "../diagnostics/timing";
 import type { SkillStatus } from "@prisma/client";
 import type {
   CategoryView,
@@ -7,6 +8,7 @@ import type {
   ListSkillsOptions,
   ManagedSkillView,
   OwnedSkillView,
+  SkillDetailView,
   SkillView,
   SkillVersionView,
 } from "./types";
@@ -51,8 +53,12 @@ function readmeFromSkillMd(skillMd: string, fallback: string) {
 
 export function toSkillView(
   skill: DatabaseSkill,
-  options: { includeSkillMd?: boolean; viewerId?: string } = {},
-): SkillView {
+  options: {
+    includeSkillMd?: boolean;
+    includeServerIds?: boolean;
+    viewerId?: string;
+  } = {},
+): SkillDetailView {
   const version = skill.versions[0];
   const versions = skill.versions.map((item, index): SkillVersionView => ({
     version: item.version,
@@ -93,6 +99,12 @@ export function toSkillView(
       : null,
     ...(options.viewerId
       ? { canManage: Boolean(skill.owner && skill.owner.id === options.viewerId) }
+      : {}),
+    ...(options.includeServerIds
+      ? {
+          databaseId: skill.id,
+          ownerProfileId: skill.ownerId,
+        }
       : {}),
     files:
       version?.files.map((file) => ({
@@ -155,17 +167,19 @@ async function findPublishedSkills(options: ListSkillsOptions = {}) {
           ? [{ stars: "desc" as const }, { updatedAt: "desc" as const }]
           : [{ featured: "desc" as const }, { updatedAt: "desc" as const }];
 
-  return prisma.skill.findMany({
-    where,
-    orderBy,
-    ...(options.limit === undefined ? {} : { take: options.limit }),
-    include: {
-      category: true,
-      owner: true,
-      skillTags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } },
-      versions: publicVersionInclude,
-    },
-  });
+  return measureAsync("REGISTRY query", "list published skills", () =>
+    prisma.skill.findMany({
+      where,
+      orderBy,
+      ...(options.limit === undefined ? {} : { take: options.limit }),
+      include: {
+        category: true,
+        owner: true,
+        skillTags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } },
+        versions: publicVersionInclude,
+      },
+    }),
+  );
 }
 
 export async function listDatabaseSkills(
@@ -179,21 +193,27 @@ export async function listDatabaseSkills(
 
 export async function getDatabaseSkillBySlug(
   slug: string,
-  options: { viewerId?: string } = {},
-): Promise<SkillView | null> {
+  options: { includeServerIds?: boolean; viewerId?: string } = {},
+): Promise<SkillDetailView | null> {
   const prisma = getConfiguredPrisma();
-  const skill = await prisma.skill.findFirst({
-    where: { ...publicSkillWhere, slug },
-    include: {
-      category: true,
-      owner: true,
-      skillTags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } },
-      versions: publicVersionHistoryInclude,
-    },
-  });
+  const skill = await measureAsync("REGISTRY query", "skill detail", () =>
+    prisma.skill.findFirst({
+      where: { ...publicSkillWhere, slug },
+      include: {
+        category: true,
+        owner: true,
+        skillTags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } },
+        versions: publicVersionHistoryInclude,
+      },
+    }),
+  );
 
   return skill
-    ? toSkillView(skill, { includeSkillMd: true, viewerId: options.viewerId })
+    ? toSkillView(skill, {
+        includeSkillMd: true,
+        includeServerIds: options.includeServerIds,
+        viewerId: options.viewerId,
+      })
     : null;
 }
 
@@ -201,18 +221,20 @@ export async function listDatabaseOwnedSkills(
   ownerId: string,
 ): Promise<OwnedSkillView[]> {
   const prisma = getConfiguredPrisma();
-  const skills = await prisma.skill.findMany({
-    where: { ownerId },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      versions: {
-        where: { publishedAt: { not: null } },
-        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: 1,
-        select: { version: true },
+  const skills = await measureAsync("DASHBOARD query", "owned skills", () =>
+    prisma.skill.findMany({
+      where: { ownerId },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        versions: {
+          where: { publishedAt: { not: null } },
+          orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: { version: true },
+        },
       },
-    },
-  });
+    }),
+  );
 
   return skills.map((skill) => ({
     slug: skill.slug,
@@ -232,19 +254,21 @@ export async function getDatabaseOwnedSkillBySlug(
   slug: string,
 ): Promise<ManagedSkillView | null> {
   const prisma = getConfiguredPrisma();
-  const skill = await prisma.skill.findFirst({
-    where: { ownerId, slug },
-    include: {
-      category: true,
-      owner: true,
-      skillTags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } },
-      versions: {
-        where: { publishedAt: { not: null } },
-        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        include: { files: { select: { id: true } } },
+  const skill = await measureAsync("REGISTRY query", "owned skill detail", () =>
+    prisma.skill.findFirst({
+      where: { ownerId, slug },
+      include: {
+        category: true,
+        owner: true,
+        skillTags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } },
+        versions: {
+          where: { publishedAt: { not: null } },
+          orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+          include: { files: { select: { id: true } } },
+        },
       },
-    },
-  });
+    }),
+  );
 
   if (!skill) return null;
 
@@ -289,15 +313,17 @@ export async function getDatabaseOwnedSkillBySlug(
 
 export async function listDatabaseCategories(): Promise<CategoryView[]> {
   const prisma = getConfiguredPrisma();
-  const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      skills: {
-        where: publicSkillWhere,
-        select: { id: true },
+  const categories = await measureAsync("REGISTRY query", "categories", () =>
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        skills: {
+          where: publicSkillWhere,
+          select: { id: true },
+        },
       },
-    },
-  });
+    }),
+  );
   const total = categories.reduce((count, category) => count + category.skills.length, 0);
 
   return [
@@ -310,11 +336,16 @@ export async function listDatabaseCategories(): Promise<CategoryView[]> {
 }
 
 export async function getDatabaseHomeData(): Promise<HomeRegistryData> {
-  const [categories, featuredSkills, latestSkills] = await Promise.all([
-    listDatabaseCategories(),
-    listDatabaseSkills({ featured: true }),
-    listDatabaseSkills({ sort: "newest", limit: 4 }),
-  ]);
+  const [categories, featuredSkills, latestSkills] = await measureAsync(
+    "HOME query",
+    "categories + featured + latest",
+    () =>
+      Promise.all([
+        listDatabaseCategories(),
+        listDatabaseSkills({ featured: true }),
+        listDatabaseSkills({ sort: "newest", limit: 4 }),
+      ]),
+  );
 
   return { categories, featuredSkills, latestSkills };
 }

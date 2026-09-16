@@ -62,6 +62,8 @@ function statusForError(code: string) {
     code === "VERSION_REQUIRED" ||
     code === "VERSION_INVALID" ||
     code === "NAME_INVALID" ||
+    code === "DISPLAY_NAME_INVALID" ||
+    code === "SLUG_TYPE_INVALID" ||
     code === "SLUG_INVALID" ||
     code === "FILE_TYPE_INVALID" ||
     code === "FILE_EMPTY" ||
@@ -160,6 +162,14 @@ export async function POST(request: Request) {
     version: textValue(formData.get("version")),
     tags: tagValues(formData),
   };
+  const slug = textValue(formData.get("slug"));
+  const displayName = textValue(formData.get("displayName"));
+  const description = textValue(formData.get("description"));
+  const targetSlug = textValue(formData.get("targetSlug"));
+  if (slug !== undefined) fields.slug = slug;
+  if (displayName !== undefined) fields.displayName = displayName;
+  if (description !== undefined) fields.description = description;
+  if (targetSlug !== undefined) fields.targetSlug = targetSlug;
 
   try {
     const result = await publishSkillPackage(

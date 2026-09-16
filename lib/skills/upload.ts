@@ -1,4 +1,5 @@
 import { DEFAULT_SKILL_LIMITS } from "./constants";
+import { resolveSkillSlug } from "./identity";
 import { isDangerousPath, isScriptPath } from "./security";
 import type {
   ParsedSkill,
@@ -38,10 +39,16 @@ export type SkillManifestPreview = Pick<
   | "license"
   | "compatibility"
   | "allowedTools"
->;
+> & {
+  displayName?: string;
+  slug?: string;
+  category?: string;
+};
 
 export interface SkillUploadPreview {
   skill: SkillManifestPreview | null;
+  packageSizeBytes?: number;
+  skillMdPreview?: string;
   files: SkillFilePreview[];
   scripts: SkillFilePreview[];
   references: SkillFilePreview[];
@@ -113,19 +120,42 @@ function createPreview(
   files: readonly SkillFile[],
   parsedSkill: ParsedSkill | undefined,
   validation: ValidationResult,
+  packageSizeBytes?: number,
 ): SkillUploadPreview {
   return {
     skill: parsedSkill
       ? {
           name: parsedSkill.manifest.name,
+          displayName:
+            typeof parsedSkill.rawFrontmatter.displayName === "string"
+              ? parsedSkill.rawFrontmatter.displayName
+              : typeof parsedSkill.rawFrontmatter["display-name"] === "string"
+                ? parsedSkill.rawFrontmatter["display-name"]
+                : undefined,
+          slug: resolveSkillSlug(
+            typeof parsedSkill.rawFrontmatter.slug === "string"
+              ? parsedSkill.rawFrontmatter.slug
+              : undefined,
+            parsedSkill.manifest.name ?? "",
+          ),
           description: parsedSkill.manifest.description,
           version: parsedSkill.manifest.version,
+          category:
+            typeof parsedSkill.rawFrontmatter.category === "string"
+              ? parsedSkill.rawFrontmatter.category
+              : typeof parsedSkill.manifest.metadata?.category === "string"
+                ? parsedSkill.manifest.metadata.category
+                : undefined,
           author: parsedSkill.manifest.author,
           license: parsedSkill.manifest.license,
           compatibility: parsedSkill.manifest.compatibility,
           allowedTools: parsedSkill.manifest.allowedTools,
         }
       : null,
+    ...(packageSizeBytes === undefined ? {} : { packageSizeBytes }),
+    ...(parsedSkill
+      ? { skillMdPreview: parsedSkill.rawSkillMd.slice(0, 12000) }
+      : {}),
     files: files.map(toPreviewFile),
     scripts: categoryFiles(files, parsedSkill, "scripts"),
     references: categoryFiles(files, parsedSkill, "references"),
@@ -158,8 +188,8 @@ function createValidationError(
 }
 
 /**
- * Analyzes an uploaded ZIP in memory. This function deliberately returns
- * metadata only; file contents and raw SKILL.md text never leave the server.
+ * Analyzes an uploaded ZIP in memory. The SKILL.md preview is bounded and
+ * read-only; package scripts are never executed.
  */
 export async function analyzeSkillUpload(
   source: SkillUploadSource,
@@ -202,6 +232,7 @@ export async function analyzeSkillUpload(
     loaded.package.files ?? [],
     loaded.parsedSkill,
     loaded.validation,
+    source.buffer.byteLength,
   );
 
   if (!loaded.validation.valid) {

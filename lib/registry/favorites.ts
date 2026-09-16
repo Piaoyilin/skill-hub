@@ -7,6 +7,7 @@ import {
   toSkillView,
   type DatabaseSkill,
 } from "./database";
+import { measureAsync } from "../diagnostics/timing";
 import type { SkillView } from "./types";
 
 export type FavoriteErrorCode =
@@ -65,12 +66,17 @@ export async function getFavoriteStatus(
   dependencies: FavoriteDependencies = {},
 ): Promise<boolean> {
   const db = getDatabase(dependencies);
-  const favorite = await db.skillFavorite.findUnique({
-    where: {
-      userId_skillId: { userId, skillId },
-    },
-    select: { userId: true },
-  });
+  const favorite = await measureAsync(
+    "FAVORITES query",
+    "favorite status",
+    () =>
+      db.skillFavorite.findUnique({
+        where: {
+          userId_skillId: { userId, skillId },
+        },
+        select: { userId: true },
+      }),
+  );
 
   return Boolean(favorite);
 }
@@ -81,7 +87,11 @@ export async function getFavoriteStatusForSlug(
   dependencies: FavoriteDependencies = {},
 ): Promise<boolean> {
   const db = getDatabase(dependencies);
-  const skill = await findPublicSkill(db, slug);
+  const skill = await measureAsync(
+    "FAVORITES query",
+    "public skill lookup",
+    () => findPublicSkill(db, slug),
+  );
   if (!skill) return false;
 
   return getFavoriteStatus(userId, skill.id, { db });
@@ -140,26 +150,31 @@ export async function getFavoriteSkillsForUser(
   dependencies: FavoriteDependencies = {},
 ): Promise<SkillView[]> {
   const db = getDatabase(dependencies);
-  const favorites = await db.skillFavorite.findMany({
-    where: {
-      userId,
-      skill: publicSkillWhere,
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      skill: {
-        include: {
-          category: true,
-          owner: true,
-          skillTags: {
-            include: { tag: true },
-            orderBy: { tag: { name: "asc" } },
-          },
-          versions: publicVersionInclude,
+  const favorites = await measureAsync(
+    "FAVORITES query",
+    "favorite skills",
+    () =>
+      db.skillFavorite.findMany({
+        where: {
+          userId,
+          skill: publicSkillWhere,
         },
-      },
-    },
-  });
+        orderBy: { createdAt: "desc" },
+        include: {
+          skill: {
+            include: {
+              category: true,
+              owner: true,
+              skillTags: {
+                include: { tag: true },
+                orderBy: { tag: { name: "asc" } },
+              },
+              versions: publicVersionInclude,
+            },
+          },
+        },
+      }),
+  );
 
   return favorites.map(({ skill }) =>
     toSkillView(skill as DatabaseSkill),

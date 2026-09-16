@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Container } from "@/components/container";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { logTimingEvent, measureAsync } from "@/lib/diagnostics/timing";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 export function Navbar() {
@@ -35,7 +36,12 @@ export function Navbar() {
 
     try {
       const supabase = getSupabaseBrowserClient();
-      void supabase.auth.getUser().then(({ data }) => {
+      void measureAsync(
+        "AUTH browser getUser",
+        "navbar initialization",
+        () => supabase.auth.getUser(),
+        { route: pathname },
+      ).then(({ data }) => {
         if (!active) return;
         setAuthUser(data.user);
         setAuthReady(true);
@@ -64,9 +70,15 @@ export function Navbar() {
   async function signOut() {
     try {
       const supabase = getSupabaseBrowserClient();
-      await supabase.auth.signOut();
+      await measureAsync(
+        "AUTH browser signOut",
+        "navbar",
+        () => supabase.auth.signOut(),
+        { route: pathname },
+      );
     } finally {
       setAuthUser(null);
+      logTimingEvent("AUTH signOut refresh", { route: pathname });
       router.refresh();
     }
   }

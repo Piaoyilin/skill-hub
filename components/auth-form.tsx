@@ -5,9 +5,21 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Loader2, LogIn, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { logTimingEvent, measureAsync } from "@/lib/diagnostics/timing";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type AuthMode = "login" | "register";
+
+export function navigateAfterAuth(
+  router: { push: (destination: string) => void },
+  destination: string,
+) {
+  logTimingEvent("AUTH redirect start", {
+    from: "/login",
+    to: destination,
+  });
+  router.push(destination);
+}
 
 function authErrorMessage(message: string) {
   const normalized = message.toLowerCase();
@@ -44,16 +56,27 @@ export function AuthForm({
       const supabase = getSupabaseBrowserClient();
       const result =
         mode === "login"
-          ? await supabase.auth.signInWithPassword({ email, password })
-          : await supabase.auth.signUp({
-              email,
-              password,
-              options: {
-                data: displayName.trim()
-                  ? { display_name: displayName.trim() }
-                  : undefined,
-              },
-            });
+          ? await measureAsync(
+              "AUTH browser signInWithPassword",
+              "login",
+              () => supabase.auth.signInWithPassword({ email, password }),
+              { mode },
+            )
+          : await measureAsync(
+              "AUTH browser signUp",
+              "register",
+              () =>
+                supabase.auth.signUp({
+                  email,
+                  password,
+                  options: {
+                    data: displayName.trim()
+                      ? { display_name: displayName.trim() }
+                      : undefined,
+                  },
+                }),
+              { mode },
+            );
 
       if (result.error) {
         setError(authErrorMessage(result.error.message));
@@ -65,8 +88,11 @@ export function AuthForm({
         return;
       }
 
-      router.push(nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard");
-      router.refresh();
+      const destination =
+        nextPath.startsWith("/") && !nextPath.startsWith("//")
+          ? nextPath
+          : "/dashboard";
+      navigateAfterAuth(router, destination);
     } catch (caught) {
       setError(
         caught instanceof Error && caught.message.includes("Supabase")

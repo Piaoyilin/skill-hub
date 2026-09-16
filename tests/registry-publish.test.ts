@@ -301,12 +301,14 @@ function createZip(
 
 function skillMd({
   name = "react-performance-audit",
+  slug,
   version = "1.0.0",
   extra = "",
-}: { name?: string; version?: string; extra?: string } = {}) {
+}: { name?: string; slug?: unknown; version?: string; extra?: string } = {}) {
   return `---
 name: ${name}
-description: 用于测试发布流程的 Skill
+${slug === undefined ? "" : `slug: ${String(slug)}
+`}description: 用于测试发布流程的 Skill
 version: ${version}
 author: Skill Hub 测试
 metadata:
@@ -886,5 +888,164 @@ describe("publishSkillPackage", () => {
       "skills/react-performance-audit/1.0.0/skill.zip",
     ]);
     expect(storage.removals).toEqual([]);
+  });
+
+  it("uses the confirmed publish details and allows the form version to override the manifest", async () => {
+    const state = createState();
+    const archive = await createZip([
+      { path: "SKILL.md", content: skillMd({ version: "1.0.0" }) },
+    ]);
+
+    const result = await publishSkillPackage(
+      { buffer: archive, fileName: "skill.zip" },
+      {
+        category: "前端",
+        version: "2.0.0",
+        slug: "confirmed-skill",
+        displayName: "Confirmed Skill",
+        description: "确认页提交的描述",
+        tags: ["React"],
+      },
+      {
+        transaction: createTransaction(state),
+        preflight: async () => {},
+        storage: createStorage().storage,
+      },
+    );
+
+    expect(result.kind).toBe("success");
+    expect(state.skills[0]).toMatchObject({
+      slug: "confirmed-skill",
+      displayName: "Confirmed Skill",
+      description: "确认页提交的描述",
+    });
+    expect(state.versions[0]?.version).toBe("2.0.0");
+  });
+
+  it("allows the publish form to repair an invalid optional manifest slug", async () => {
+    const state = createState();
+    const archive = await createZip([
+      {
+        path: "SKILL.md",
+        content: skillMd({
+          version: "1.0.0",
+          slug: 123,
+        }),
+      },
+    ]);
+
+    const result = await publishSkillPackage(
+      { buffer: archive, fileName: "skill.zip" },
+      {
+        category: "前端",
+        slug: "repaired-skill",
+      },
+      {
+        transaction: createTransaction(state),
+        preflight: async () => {},
+        storage: createStorage().storage,
+      },
+    );
+
+    expect(result.kind).toBe("success");
+    expect(state.skills[0]?.slug).toBe("repaired-skill");
+  });
+
+  it("does not let a new-version target be changed into another Skill", async () => {
+    const state = createState({
+      skills: [
+        {
+          id: "skill-owned",
+          slug: "react-performance-audit",
+          displayName: "已有 Skill",
+          description: "描述",
+          categoryId: "category-frontend",
+          status: "PUBLISHED",
+          authorDisplayName: "Owner",
+          ownerId: "profile-owner",
+        },
+      ],
+    });
+    const archive = await createZip([
+      { path: "SKILL.md", content: skillMd({ version: "1.1.0" }) },
+    ]);
+    const storage = createStorage();
+
+    const result = await publishSkillPackage(
+      { buffer: archive, fileName: "skill.zip" },
+      {
+        category: "前端",
+        slug: "another-skill",
+        targetSlug: "react-performance-audit",
+      },
+      {
+        preflight: async () => {},
+        transaction: createTransaction(state),
+        storage: storage.storage,
+        owner: {
+          id: "profile-owner",
+          username: "owner",
+          displayName: "Owner",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      kind: "error",
+      error: { code: "SKILL_PERMISSION_DENIED" },
+    });
+    expect(state.versions).toHaveLength(0);
+    expect(storage.removals).toEqual([
+      "skills/another-skill/1.1.0/skill.zip",
+    ]);
+  });
+
+  it("does not let a non-Owner publish through the new-version target", async () => {
+    const state = createState({
+      skills: [
+        {
+          id: "skill-owned",
+          slug: "react-performance-audit",
+          displayName: "已有 Skill",
+          description: "描述",
+          categoryId: "category-frontend",
+          status: "PUBLISHED",
+          authorDisplayName: "Owner",
+          ownerId: "profile-owner",
+        },
+      ],
+    });
+    const archive = await createZip([
+      { path: "SKILL.md", content: skillMd({ version: "1.1.0" }) },
+    ]);
+    const storage = createStorage();
+
+    const result = await publishSkillPackage(
+      { buffer: archive, fileName: "skill.zip" },
+      {
+        category: "前端",
+        slug: "react-performance-audit",
+        targetSlug: "react-performance-audit",
+      },
+      {
+        preflight: async () => {},
+        transaction: createTransaction(state),
+        storage: storage.storage,
+        owner: {
+          id: "profile-other",
+          username: "other",
+          displayName: "Other",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      kind: "error",
+      error: { code: "SKILL_PERMISSION_DENIED" },
+    });
+    expect(state.versions).toHaveLength(0);
+    expect(storage.removals).toEqual([
+      "skills/react-performance-audit/1.1.0/skill.zip",
+    ]);
   });
 });

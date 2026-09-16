@@ -7,6 +7,7 @@ import { AlertTriangle, Check, Clipboard, Download, FileCode2, Folder, GitBranch
 import type { SkillView as Skill } from "@/lib/registry";
 import { Container } from "@/components/container";
 import { SkillBadge, VerifiedBadge } from "@/components/skill-badge";
+import { logTimingEvent } from "@/lib/diagnostics/timing";
 import { cn, formatCount } from "@/lib/utils";
 
 const tabs = [
@@ -62,6 +63,11 @@ export function FavoriteButton({
         response.status === 401 ||
         payload?.error?.code === "AUTH_REQUIRED"
       ) {
+        logTimingEvent("SKILL DETAIL full reload", {
+          from: window.location.pathname,
+          to: `/login?next=${encodeURIComponent(`/skills/${slug}`)}`,
+          reason: "unauthenticated favorite",
+        });
         window.location.assign(
           `/login?next=${encodeURIComponent(`/skills/${slug}`)}`,
         );
@@ -199,7 +205,7 @@ export function SkillDetail({
               {skill.canManage ? (
                 <>
                   <Link
-                    href={`/create?slug=${encodeURIComponent(skill.slug)}`}
+                    href={`/create?skill=${encodeURIComponent(skill.slug)}`}
                     className="inline-flex h-10 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-muted"
                   >
                     <GitBranch className="h-4 w-4" />

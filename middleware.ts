@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { measureAsync } from "@/lib/diagnostics/timing";
 
 export async function middleware(request: NextRequest) {
   const url =
@@ -26,7 +27,12 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  await measureAsync(
+    "MIDDLEWARE AUTH",
+    "getUser",
+    () => supabase.auth.getUser(),
+    { route: request.nextUrl.pathname },
+  );
   return response;
 
 }

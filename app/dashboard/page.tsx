@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { SkillGrid } from "@/components/skill-grid";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/server";
+import { measureAsync } from "@/lib/diagnostics/timing";
 import {
   getFavoriteSkillsForUser,
   listRegistryOwnedSkills,
@@ -25,7 +26,7 @@ export default async function DashboardPage({
   const activeTab = params.tab === "favorites" ? "favorites" : "skills";
   let currentUser;
   try {
-    currentUser = await getCurrentUser();
+    currentUser = await getCurrentUser({ route: "/dashboard" });
   } catch {
     currentUser = null;
   }
@@ -38,9 +39,19 @@ export default async function DashboardPage({
   let favoriteSkills: SkillView[] = [];
 
   if (activeTab === "favorites") {
-    favoriteSkills = await getFavoriteSkillsForUser(currentUser.profile.id);
+    favoriteSkills = await measureAsync(
+      "TOTAL render/data",
+      "dashboard favorites",
+      () => getFavoriteSkillsForUser(currentUser.profile.id),
+      { route: "/dashboard", tab: activeTab },
+    );
   } else {
-    skills = await listRegistryOwnedSkills(currentUser.profile.id);
+    skills = await measureAsync(
+      "TOTAL render/data",
+      "dashboard owned skills",
+      () => listRegistryOwnedSkills(currentUser.profile.id),
+      { route: "/dashboard", tab: activeTab },
+    );
   }
 
   return (

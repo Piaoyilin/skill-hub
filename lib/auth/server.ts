@@ -2,6 +2,7 @@ import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import type { PrismaClient } from "@prisma/client";
 
 import { getConfiguredPrisma } from "@/lib/db/client";
+import { logTiming, measureAsync } from "@/lib/diagnostics/timing";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export type UserProfile = {
@@ -18,6 +19,14 @@ export type CurrentUser = {
 };
 
 type ProfileDb = Pick<PrismaClient, "user">;
+
+const profileSelect = {
+  id: true,
+  authUserId: true,
+  username: true,
+  displayName: true,
+  avatarUrl: true,
+} as const;
 
 function metadataValue(user: SupabaseAuthUser, keys: string[]) {
   const metadata = user.user_metadata;
@@ -62,41 +71,83 @@ export async function ensureProfile(
   dependencies: { db?: ProfileDb } = {},
 ): Promise<UserProfile> {
   const db = dependencies.db ?? getConfiguredPrisma();
-  return db.user.upsert({
+  const displayName = profileDisplayName(authUser);
+  const avatarUrl = profileAvatarUrl(authUser);
+  const existing = await db.user.findUnique({
     where: { authUserId: authUser.id },
-    update: {
-      displayName: profileDisplayName(authUser),
-      avatarUrl: profileAvatarUrl(authUser),
-    },
-    create: {
-      authUserId: authUser.id,
-      username: profileUsername(authUser),
-      displayName: profileDisplayName(authUser),
-      avatarUrl: profileAvatarUrl(authUser),
-    },
-    select: {
-      id: true,
-      authUserId: true,
-      username: true,
-      displayName: true,
-      avatarUrl: true,
-    },
+    select: profileSelect,
+  });
+
+  if (!existing) {
+    try {
+      return await db.user.create({
+        data: {
+          authUserId: authUser.id,
+          username: profileUsername(authUser),
+          displayName,
+          avatarUrl,
+        },
+        select: profileSelect,
+      });
+    } catch (error) {
+      const recovered = await db.user.findUnique({
+        where: { authUserId: authUser.id },
+        select: profileSelect,
+      });
+      if (recovered) return recovered;
+      throw error;
+    }
+  }
+
+  if (existing.displayName === displayName && existing.avatarUrl === avatarUrl) {
+    return existing;
+  }
+
+  return db.user.update({
+    where: { authUserId: authUser.id },
+    data: { displayName, avatarUrl },
+    select: profileSelect,
   });
 
 }
 
-export async function getCurrentAuthUser() {
+export async function getCurrentAuthUser(options: { route?: string } = {}) {
   const supabase = await getSupabaseServerClient();
-  const { data, error } = await supabase.auth.getUser();
+  const { data, error } = await measureAsync(
+    "AUTH getUser",
+    "server",
+    () => supabase.auth.getUser(),
+    { route: options.route },
+  );
   if (error || !data.user) return null;
   return data.user;
 
 }
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const authUser = await getCurrentAuthUser();
-  if (!authUser) return null;
-  const profile = await ensureProfile(authUser);
+export async function getCurrentUser(
+  options: { route?: string } = {},
+): Promise<CurrentUser | null> {
+  const startedAt = performance.now();
+  const authUser = await getCurrentAuthUser(options);
+  if (!authUser) {
+    logTiming("AUTH current user", performance.now() - startedAt, {
+      route: options.route,
+      operation: "getUser + profile",
+      status: "anonymous",
+    });
+    return null;
+  }
+  const profile = await measureAsync(
+    "PROFILE query",
+    "profile sync",
+    () => ensureProfile(authUser),
+    { route: options.route },
+  );
+  logTiming("AUTH current user", performance.now() - startedAt, {
+    route: options.route,
+    operation: "getUser + profile",
+    status: "ok",
+  });
   return { authUser, profile };
 
 }

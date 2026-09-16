@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, LogIn } from "lucide-react";
 import { Container } from "@/components/container";
 import { AuthForm } from "@/components/auth-form";
+import { logTiming } from "@/lib/diagnostics/timing";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,12 @@ export default async function LoginPage({
     params.next?.startsWith("/") && !params.next.startsWith("//")
       ? params.next
       : "/dashboard";
+
+  logTiming("TOTAL render/data", 0, {
+    route: "/login",
+    operation: "login page static data",
+    status: "ok",
+  });
 
   return (
     <Container className="flex min-h-[calc(100vh-4rem)] max-w-xl items-center py-12">

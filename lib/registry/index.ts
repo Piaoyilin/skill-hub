@@ -22,6 +22,7 @@ import type {
   ListSkillsOptions,
   ManagedSkillView,
   OwnedSkillView,
+  SkillDetailView,
   SkillView,
 } from "./types";
 
@@ -70,8 +71,8 @@ export async function listRegistrySkills(
 
 export async function getRegistrySkillBySlug(
   slug: string,
-  options: { viewerId?: string } = {},
-): Promise<SkillView | null> {
+  options: { includeServerIds?: boolean; viewerId?: string } = {},
+): Promise<SkillDetailView | null> {
   if (getSkillDataSource() === "mock") {
     return getMockSkillBySlug(slug);
   }
