@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logTiming } from "@/lib/diagnostics/timing";
 import {
   importGithubSkill,
   type GithubImportErrorCode,
@@ -6,6 +7,19 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function elapsedMilliseconds(startedAt: number) {
+  return Number((performance.now() - startedAt).toFixed(1));
+}
+
+function jsonResponse(body: unknown, init?: ResponseInit) {
+  const startedAt = performance.now();
+  const response = NextResponse.json(body, init);
+  logTiming("GITHUB response serialization", elapsedMilliseconds(startedAt), {
+    statusCode: response.status,
+  });
+  return response;
+}
 
 function statusForError(code: GithubImportErrorCode) {
   switch (code) {
@@ -35,7 +49,7 @@ function errorResponse(
   message: string,
   extra: Record<string, unknown> = {},
 ) {
-  return NextResponse.json(
+  return jsonResponse(
     {
       success: false,
       error: { code, message },
@@ -73,7 +87,7 @@ export async function POST(request: Request) {
     const result = await importGithubSkill(url);
 
     if (result.kind === "success") {
-      return NextResponse.json({
+      return jsonResponse({
         success: true,
         repository: result.repository,
         fileName: result.fileName,

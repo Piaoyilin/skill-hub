@@ -193,7 +193,12 @@ function createValidationError(
  */
 export async function analyzeSkillUpload(
   source: SkillUploadSource,
-  options: { limits?: SkillLimits } = {},
+  options: {
+    limits?: SkillLimits;
+    diagnostics?: {
+      source?: string;
+    };
+  } = {},
 ): Promise<SkillUploadAnalysis> {
   const limits = options.limits ?? DEFAULT_SKILL_LIMITS;
 
@@ -227,7 +232,10 @@ export async function analyzeSkillUpload(
     };
   }
 
-  const loaded = await loadSkillPackageFromZip(source.buffer, { limits });
+  const loaded = await loadSkillPackageFromZip(source.buffer, {
+    limits,
+    diagnostics: options.diagnostics,
+  });
   const preview = createPreview(
     loaded.package.files ?? [],
     loaded.parsedSkill,

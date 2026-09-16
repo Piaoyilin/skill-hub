@@ -288,6 +288,46 @@ describe("GitHub Import v1", () => {
     });
   });
 
+  it("rejects oversized repository metadata before downloading the archive", async () => {
+    const archive = await createZip([
+      { path: "repo/SKILL.md", content: validSkillMd },
+    ]);
+    const { calls, fetcher } = mockGithubFetch(archive, {
+      size: Math.ceil(DEFAULT_SKILL_LIMITS.maxPackageSizeBytes / 1024) + 1,
+    });
+
+    const result = await importGithubSkill("https://github.com/example/large", {
+      fetch: fetcher,
+    });
+
+    expect(result).toMatchObject({
+      kind: "error",
+      error: { code: "PACKAGE_TOO_LARGE" },
+    });
+    expect(calls).toEqual(["https://api.github.com/repos/example/large"]);
+  });
+
+  it("times out a stalled GitHub request without hanging forever", async () => {
+    const fetcher = vi.fn(
+      (_input: string | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    ) as unknown as typeof fetch;
+
+    const result = await importGithubSkill("https://github.com/example/slow", {
+      fetch: fetcher,
+      timeouts: { metadataMs: 5 },
+    });
+
+    expect(result).toMatchObject({
+      kind: "error",
+      error: { code: "FETCH_FAILED" },
+    });
+  });
+
   it("maps repository and GitHub API failures without exposing response details", async () => {
     const notFound = vi.fn(async () => new Response("not found", { status: 404 }));
     await expect(

@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { Readable } from "node:stream";
 import * as yauzl from "yauzl";
+import { logTiming } from "../diagnostics/timing";
 import {
   DEFAULT_SKILL_LIMITS,
   MAX_COMPRESSION_RATIO,
@@ -20,6 +21,9 @@ import { validateSkillPackage } from "./validator";
 
 export type SkillZipLoadOptions = {
   limits?: SkillLimits;
+  diagnostics?: {
+    source?: string;
+  };
 };
 
 export type SkillZipLoadResult = {
@@ -63,6 +67,18 @@ class ZipAdapterError extends Error {
     this.code = code;
     this.path = path;
   }
+}
+
+function elapsedMilliseconds(startedAt: number) {
+  return Number((performance.now() - startedAt).toFixed(1));
+}
+
+function zipTiming(
+  label: string,
+  startedAt: number,
+  context: Record<string, string | number | boolean | undefined> = {},
+) {
+  logTiming(label, elapsedMilliseconds(startedAt), context);
 }
 
 function issue(
@@ -370,7 +386,9 @@ export async function loadSkillPackageFromZip(
   options: SkillZipLoadOptions = {},
 ): Promise<SkillZipLoadResult> {
   const limits = options.limits ?? DEFAULT_SKILL_LIMITS;
+  const diagnostics = options.diagnostics;
   const buffer = Buffer.from(input);
+  const totalStartedAt = performance.now();
 
   if (buffer.length > limits.maxPackageSizeBytes) {
     return finalizeResult(
@@ -390,12 +408,25 @@ export async function loadSkillPackageFromZip(
   const adapterIssues: ValidationIssue[] = [];
 
   try {
+    const openStartedAt = performance.now();
     zipfile = await openZip(buffer);
+    zipTiming("ZIP parse open", openStartedAt, {
+      source: diagnostics?.source,
+      bytes: buffer.length,
+    });
+
+    const securityStartedAt = performance.now();
     const { records, declaredTotalSize } = await collectEntries(
       zipfile,
       limits,
       adapterIssues,
     );
+    zipTiming("ZIP security validation", securityStartedAt, {
+      source: diagnostics?.source,
+      entryCount: records.length,
+      declaredBytes: declaredTotalSize,
+      issueCount: adapterIssues.length,
+    });
 
     const skillEntries = records.filter(
       (record) =>
@@ -453,6 +484,7 @@ export async function loadSkillPackageFromZip(
 
     const budget = { actualExtractedBytes: 0 };
     let stoppedReading = false;
+    const extractStartedAt = performance.now();
 
     for (const item of transformed) {
       const { record, path } = item;
@@ -501,6 +533,11 @@ export async function loadSkillPackageFromZip(
         break;
       }
     }
+    zipTiming("ZIP parse entries", extractStartedAt, {
+      source: diagnostics?.source,
+      fileCount: packageFiles.length,
+      extractedBytes: budget.actualExtractedBytes,
+    });
 
     if (stoppedReading && budget.actualExtractedBytes > limits.maxPackageSizeBytes) {
       adapterIssues.push(
@@ -517,7 +554,18 @@ export async function loadSkillPackageFromZip(
       budget.actualExtractedBytes,
     );
 
+    const validateStartedAt = performance.now();
     const result = finalizeResult(packageInput, adapterIssues, limits);
+    zipTiming("ZIP package validation", validateStartedAt, {
+      source: diagnostics?.source,
+      valid: result.validation.valid,
+      issueCount: result.validation.issues.length,
+    });
+    zipTiming("ZIP loadSkillPackageFromZip total", totalStartedAt, {
+      source: diagnostics?.source,
+      bytes: buffer.length,
+      fileCount: packageFiles.length,
+    });
     return result;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
