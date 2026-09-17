@@ -19,6 +19,31 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { logTimingEvent, measureAsync } from "@/lib/diagnostics/timing";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
+type NavbarAuthClient = {
+  auth: {
+    getSession: () => Promise<{
+      data: {
+        session: {
+          user: User | null;
+        } | null;
+      };
+    }>;
+  };
+};
+
+export async function getNavbarInitialAuthUser(
+  supabase: NavbarAuthClient,
+  route?: string,
+) {
+  const { data } = await measureAsync(
+    "AUTH browser getSession",
+    "navbar initialization",
+    () => supabase.auth.getSession(),
+    { route },
+  );
+  return data.session?.user ?? null;
+}
+
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -37,13 +62,17 @@ export function Navbar() {
     try {
       const supabase = getSupabaseBrowserClient();
       void measureAsync(
-        "AUTH browser getUser",
+        "AUTH browser initial state",
         "navbar initialization",
-        () => supabase.auth.getUser(),
+        () => getNavbarInitialAuthUser(supabase, pathname),
         { route: pathname },
-      ).then(({ data }) => {
+      ).then((user) => {
         if (!active) return;
-        setAuthUser(data.user);
+        setAuthUser(user);
+        setAuthReady(true);
+      }).catch(() => {
+        if (!active) return;
+        setAuthUser(null);
         setAuthReady(true);
       });
 

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { measureAsync } from "@/lib/diagnostics/timing";
+import { logTimingEvent, measureAsync } from "@/lib/diagnostics/timing";
+import { hasSupabaseAuthCookie } from "@/lib/supabase/auth-cookies";
 
 export async function middleware(request: NextRequest) {
   const url =
@@ -12,6 +13,14 @@ export async function middleware(request: NextRequest) {
   if (!url || !publishableKey) return NextResponse.next();
 
   let response = NextResponse.next({ request });
+  if (!hasSupabaseAuthCookie(request.cookies.getAll())) {
+    logTimingEvent("MIDDLEWARE AUTH skipped", {
+      route: request.nextUrl.pathname,
+      reason: "no auth cookie",
+    });
+    return response;
+  }
+
   const supabase = createServerClient(url, publishableKey, {
     cookies: {
       getAll() {

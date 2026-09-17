@@ -3,7 +3,10 @@ import type { PrismaClient } from "@prisma/client";
 
 import { getConfiguredPrisma } from "@/lib/db/client";
 import { logTiming, measureAsync } from "@/lib/diagnostics/timing";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getSupabaseServerClient,
+  requestHasSupabaseAuthCookie,
+} from "@/lib/supabase/server";
 
 export type UserProfile = {
   id: string;
@@ -112,7 +115,27 @@ export async function ensureProfile(
 }
 
 export async function getCurrentAuthUser(options: { route?: string } = {}) {
-  const supabase = await getSupabaseServerClient();
+  const hasAuthCookie = await measureAsync(
+    "AUTH cookie check",
+    "server",
+    () => requestHasSupabaseAuthCookie(),
+    { route: options.route },
+  );
+  if (!hasAuthCookie) {
+    logTiming("AUTH getUser", 0, {
+      route: options.route,
+      operation: "server",
+      status: "skipped-no-cookie",
+    });
+    return null;
+  }
+
+  const supabase = await measureAsync(
+    "AUTH server client",
+    "create server client",
+    () => getSupabaseServerClient(),
+    { route: options.route },
+  );
   const { data, error } = await measureAsync(
     "AUTH getUser",
     "server",

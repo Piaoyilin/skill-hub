@@ -4,6 +4,12 @@ import { cookies } from "next/headers";
 import {
   SupabaseConfigurationError,
 } from "./config";
+import { hasSupabaseAuthCookie } from "./auth-cookies";
+
+export async function requestHasSupabaseAuthCookie() {
+  const cookieStore = await cookies();
+  return hasSupabaseAuthCookie(cookieStore.getAll());
+}
 
 export async function getSupabaseServerClient() {
   const cookieStore = await cookies();
