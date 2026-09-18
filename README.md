@@ -320,11 +320,6 @@ docs/                   Project Documentation
 - 🗄️ Prisma Migration Baseline
 - 🐳 Docker / amd64 Image
 
-## 📚 Documentation
-
-- [`docs/Skill-Hub-System-Design.md`](docs/Skill-Hub-System-Design.md) — 系统设计文档
-- [`docs/database.md`](docs/database.md) — Database 辅助文档
-- [`docs/storage.md`](docs/storage.md) — Storage 辅助文档
 
 ## 🎓 Project Context
 
